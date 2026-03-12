@@ -1,0 +1,106 @@
+name: Update gati formula
+
+on:
+  schedule:
+    - cron: "0 0 * * *" # Daily at 00:00 UTC
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to update to (e.g. 0.4.0). Leave empty to use latest release."
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get target version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION="$INPUT_VERSION"
+          else
+            VERSION=$(gh release view --repo YutaUra/gati --json tagName --jq '.tagName' | sed 's/^v//')
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+          CURRENT=$(grep -m1 'version "' Formula/gati.rb | sed 's/.*version "//;s/"//')
+          echo "current=${CURRENT}" >> "$GITHUB_OUTPUT"
+
+      - name: Check if update is needed
+        id: check
+        env:
+          NEW_VERSION: ${{ steps.version.outputs.version }}
+          CURRENT_VERSION: ${{ steps.version.outputs.current }}
+        run: |
+          if [ "$NEW_VERSION" = "$CURRENT_VERSION" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Already up to date (v${CURRENT_VERSION})"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "Updating ${CURRENT_VERSION} -> ${NEW_VERSION}"
+          fi
+
+      - name: Download archives and compute sha256
+        if: steps.check.outputs.skip == 'false'
+        id: sha
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          BASE_URL="https://github.com/YutaUra/gati/releases/download/v${VERSION}"
+
+          for target in aarch64-apple-darwin x86_64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu; do
+            url="${BASE_URL}/gati-v${VERSION}-${target}.tar.gz"
+            sha=$(curl -sL "$url" | sha256sum | awk '{print $1}')
+            key=$(echo "$target" | tr '-' '_')
+            echo "${key}=${sha}" >> "$GITHUB_OUTPUT"
+            echo "${target}: ${sha}"
+          done
+
+      - name: Update Formula
+        if: steps.check.outputs.skip == 'false'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SHA_AARCH64_APPLE: ${{ steps.sha.outputs.aarch64_apple_darwin }}
+          SHA_X86_64_APPLE: ${{ steps.sha.outputs.x86_64_apple_darwin }}
+          SHA_AARCH64_LINUX: ${{ steps.sha.outputs.aarch64_unknown_linux_gnu }}
+          SHA_X86_64_LINUX: ${{ steps.sha.outputs.x86_64_unknown_linux_gnu }}
+        run: |
+          FORMULA="Formula/gati.rb"
+
+          # Update version
+          sed -i "s/version \"[^\"]*\"/version \"${VERSION}\"/" "$FORMULA"
+
+          # Update sha256 for each target
+          # Match the url line containing the target, then update the sha256 on the next line
+          update_sha() {
+            local target="$1"
+            local sha="$2"
+            sed -i "/${target}/{ n; s/sha256 \"[^\"]*\"/sha256 \"${sha}\"/; }" "$FORMULA"
+          }
+
+          update_sha "aarch64-apple-darwin" "$SHA_AARCH64_APPLE"
+          update_sha "x86_64-apple-darwin" "$SHA_X86_64_APPLE"
+          update_sha "aarch64-unknown-linux-gnu" "$SHA_AARCH64_LINUX"
+          update_sha "x86_64-unknown-linux-gnu" "$SHA_X86_64_LINUX"
+
+          echo "Updated Formula:"
+          cat "$FORMULA"
+
+      - name: Commit and push
+        if: steps.check.outputs.skip == 'false'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/gati.rb
+          git commit -m "Update gati to v${VERSION}"
+          git push
