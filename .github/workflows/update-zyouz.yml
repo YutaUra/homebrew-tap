@@ -1,0 +1,105 @@
+name: Update zyouz formula
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check latest release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          LATEST=$(gh api repos/YutaUra/zyouz/releases/latest --jq '.tag_name' | sed 's/^v//')
+          CURRENT=$(grep 'version "' Formula/zyouz.rb | head -1 | sed 's/.*version "//;s/"//')
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          if [ "$LATEST" = "$CURRENT" ]; then
+            echo "up_to_date=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "up_to_date=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Update formula
+        if: steps.release.outputs.up_to_date == 'false'
+        env:
+          VERSION: ${{ steps.release.outputs.latest }}
+        run: |
+          BASE_URL="https://github.com/YutaUra/zyouz/releases/download/v${VERSION}"
+
+          SHA_X86_64_MACOS=$(curl -sL "${BASE_URL}/zyouz-x86_64-macos.tar.gz" | shasum -a 256 | cut -d' ' -f1)
+          SHA_AARCH64_MACOS=$(curl -sL "${BASE_URL}/zyouz-aarch64-macos.tar.gz" | shasum -a 256 | cut -d' ' -f1)
+          SHA_X86_64_LINUX=$(curl -sL "${BASE_URL}/zyouz-x86_64-linux.tar.gz" | shasum -a 256 | cut -d' ' -f1)
+          SHA_AARCH64_LINUX=$(curl -sL "${BASE_URL}/zyouz-aarch64-linux.tar.gz" | shasum -a 256 | cut -d' ' -f1)
+
+          cat > Formula/zyouz.rb << RUBY
+          class Zyouz < Formula
+            desc "A terminal multiplexer driven by a static config file"
+            homepage "https://github.com/YutaUra/zyouz"
+            version "${VERSION}"
+            license "MIT"
+
+            on_macos do
+              on_intel do
+                url "https://github.com/YutaUra/zyouz/releases/download/v#{version}/zyouz-x86_64-macos.tar.gz"
+                sha256 "${SHA_X86_64_MACOS}"
+              end
+
+              on_arm do
+                url "https://github.com/YutaUra/zyouz/releases/download/v#{version}/zyouz-aarch64-macos.tar.gz"
+                sha256 "${SHA_AARCH64_MACOS}"
+              end
+            end
+
+            on_linux do
+              on_intel do
+                url "https://github.com/YutaUra/zyouz/releases/download/v#{version}/zyouz-x86_64-linux.tar.gz"
+                sha256 "${SHA_X86_64_LINUX}"
+              end
+
+              on_arm do
+                url "https://github.com/YutaUra/zyouz/releases/download/v#{version}/zyouz-aarch64-linux.tar.gz"
+                sha256 "${SHA_AARCH64_LINUX}"
+              end
+            end
+
+            def install
+              bin.install "zyouz"
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/zyouz --version")
+            end
+          end
+          RUBY
+
+          # Remove leading whitespace from heredoc
+          sed -i 's/^          //' Formula/zyouz.rb
+
+      - name: Create pull request
+        if: steps.release.outputs.up_to_date == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.release.outputs.latest }}
+        run: |
+          BRANCH="update-zyouz-${VERSION}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add Formula/zyouz.rb
+          git commit -m "zyouz: update to ${VERSION}"
+          git push origin "$BRANCH"
+          gh pr create \
+            --title "zyouz: update to ${VERSION}" \
+            --body "Automated update of zyouz formula to v${VERSION}." \
+            --base main \
+            --head "$BRANCH"
