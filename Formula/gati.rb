@@ -1,26 +1,26 @@
 class Gati < Formula
   desc "A terminal tool for reviewing code, not writing it"
   homepage "https://github.com/YutaUra/gati"
-  version "0.7.0"
+  version "0.8.0"
   license "MIT"
 
   on_macos do
     if Hardware::CPU.arm?
       url "https://github.com/YutaUra/gati/releases/download/v#{version}/gati-v#{version}-aarch64-apple-darwin.tar.gz"
-      sha256 "8c67fc0cff1adefe484b5c05de14399b19fd5315923f070b5c44be4e17ef176a"
+      sha256 "ad3df95ce150bae60569c9965aa34c9946006a7c0ef038722be32fc1a1e93961"
     else
       url "https://github.com/YutaUra/gati/releases/download/v#{version}/gati-v#{version}-x86_64-apple-darwin.tar.gz"
-      sha256 "59e1ba8a45598366e40f36e83fe15ab46a889c6f256423b39d6187d4a5e0027f"
+      sha256 "5e6906d0c890e113c4059de994e70287f0895cda21143e8830ce2a1326fc79e8"
     end
   end
 
   on_linux do
     if Hardware::CPU.arm?
       url "https://github.com/YutaUra/gati/releases/download/v#{version}/gati-v#{version}-aarch64-unknown-linux-gnu.tar.gz"
-      sha256 "91ec08c41dcd79e0bd7983e67f4ef1302233377aff5087480f76907716b39be6"
+      sha256 "ec3039df4d699170f662339d55e298442565fd0e0e28c7fe1b8c83c636cac991"
     else
       url "https://github.com/YutaUra/gati/releases/download/v#{version}/gati-v#{version}-x86_64-unknown-linux-gnu.tar.gz"
-      sha256 "80e6f0ee8b9a668be005935ffa2b727d472c4392cd7f9f3d8c8158db40ccb4a2"
+      sha256 "b84ec49b9eeda96a243d75b90f44a2d5c4703ebbb428e5d49e478710e14dd23f"
     end
   end
 
